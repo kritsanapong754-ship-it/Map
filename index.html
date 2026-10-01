@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="th" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thai Situation Intelligence (TSI) - ระบบข้อมูลสถานการณ์ประเทศไทยแบบรวมศูนย์</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Prompt', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            500: '#0284c7',
+                            900: '#0c4a6e',
+                        },
+                        status: {
+                            green: '#22c55e',
+                            yellow: '#eab308',
+                            red: '#ef4444',
+                            purple: '#a855f7'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        #map { height: 100%; min-height: 480px; width: 100%; border-radius: 0.75rem; z-index: 10; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .leaflet-popup-content-wrapper { background: #1e293b; color: #f8fafc; border-radius: 0.75rem; border: 1px solid #334155; }
+        .leaflet-popup-tip { background: #1e293b; }
+        .glass-panel { background: rgba(30, 41, 59, 0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col antialiased selection:bg-sky-500 selection:text-white">
+
+    <!-- Top Navigation Header -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-filter blur-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-sky-500/20 font-bold text-xl">
+                    🇹🇭
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-sky-400 to-indigo-300">
+                        Thai Situation Intelligence
+                    </h1>
+                    <p class="text-xs text-slate-400 hidden sm:block">ระบบข้อมูลสถานการณ์ประเทศไทยแบบรวมศูนย์ (77 จังหวัด)</p>
+                </div>
+            </div>
+
+            <!-- Global Search & Select Province -->
+            <div class="flex-1 max-w-xs sm:max-w-md relative">
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                    <select id="provinceSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-8 py-1.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent cursor-pointer">
+                        <!-- Populated by JavaScript -->
+                    </select>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex items-center space-x-2">
+                <button id="openReportModalBtn" class="bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs sm:text-sm font-medium px-3 sm:px-4 py-2 rounded-lg transition-all duration-200 shadow-md shadow-sky-500/20 flex items-center space-x-2">
+                    <i class="fa-solid fa-camera"></i>
+                    <span class="hidden sm:inline">รายงานสดพื้นที่</span>
+                    <span class="sm:hidden">+ รายงาน</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Alert Ticker Banner -->
+    <div class="bg-slate-900 border-b border-slate-800 px-4 py-2">
+        <div class="max-w-7xl mx-auto flex items-center justify-between text-xs overflow-hidden">
+            <div class="flex items-center space-x-2 text-amber-400 shrink-0 font-semibold mr-3">
+                <span class="animate-pulse flex h-2 w-2 rounded-full bg-amber-400"></span>
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span>แจ้งเตือนด่วน:</span>
+            </div>
+            <div class="overflow-hidden whitespace-nowrap w-full">
+                <div id="alertTickerText" class="inline-block animate-marquee text-slate-300">
+                    ดึงข้อมูลพายุฝนฟ้าคะนองและสถิติวัดระดับน้ำ Real-time จากกรมอุตุนิยมวิทยา และรายงานประชาชนล่าสุด...
+                </div>
+            </div>
+            <div class="shrink-0 text-slate-400 ml-3 text-[11px] hidden md:block" id="liveClock">
+                --:--:--
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Left Column: Province Intelligence Dashboard (4 cols) -->
+        <section class="lg:col-span-4 flex flex-col gap-5">
+            
+            <!-- Selected Province Card -->
+            <div class="glass-panel p-5 rounded-xl">
+                <div class="flex items-center justify-between mb-3">
+                    <div>
+                        <span id="provinceRegionBadge" class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-sky-950 text-sky-400 border border-sky-800/50">
+                            ภาคอีสาน
+                        </span>
+                        <h2 id="provinceTitle" class="text-2xl font-bold text-slate-100 mt-1">
+                            นครราชสีมา
+                        </h2>
+                    </div>
+                    <div id="situationBadge" class="flex flex-col items-end">
+                        <span class="text-xs text-slate-400">Situation Index</span>
+                        <div class="flex items-center space-x-1 mt-1">
+                            <span id="situationScore" class="text-2xl font-extrabold text-emerald-400">38</span>
+                            <span class="text-xs text-slate-500">/100</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Situation Level Bar -->
+                <div class="mt-2">
+                    <div class="flex justify-between text-xs mb-1 font-medium">
+                        <span id="situationLevelText" class="text-emerald-400">🟢 Normal (ปกติ)</span>
+                        <span class="text-slate-400 text-[11px]">อัปเดตล่าสุด: <span id="lastUpdatedTime">เพิ่งเกิดขึ้น</span></span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
+                        <div id="scoreBar" class="bg-emerald-500 h-full transition-all duration-500" style="width: 38%;"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+                        <span>Normal</span>
+                        <span>Watch</span>
+                        <span>High</span>
+                        <span>Critical</span>
+                    </div>
+                </div>
+
+                <p class="text-xs text-slate-400 mt-3 pt-3 border-t border-slate-800 leading-relaxed">
+                    <i class="fa-solid fa-circle-info text-sky-400 mr-1"></i>
+                    ดัชนีสถานการณ์ประมวลผลคำนวณจาก Weather + Rain + PM2.5 + Live Crowd Reports โดยระบบศูนย์รวมข้อมูลสาธารณะ
+                </p>
+            </div>
+
+            <!-- Weather Details Card -->
+            <div class="glass-panel p-5 rounded-xl flex-1 flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+                        <h3 class="text-sm font-semibold text-slate-200 flex items-center">
+                            <i class="fa-solid fa-cloud-sun-rain text-sky-400 mr-2"></i>
+                            สภาพอากาศปัจจุบัน (TMD Weather)
+                        </h3>
+                        <span class="text-[11px] text-sky-400 bg-sky-950 px-2 py-0.5 rounded border border-sky-800">Live Data</span>
+                    </div>
+
+                    <div class="flex items-center justify-between my-2">
+                        <div class="flex items-center space-x-3">
+                            <div id="weatherIcon" class="text-4xl text-amber-400">
+                                <i class="fa-solid fa-cloud-sun"></i>
+                            </div>
+                            <div>
+                                <div class="text-3xl font-bold text-slate-100"><span id="weatherTemp">31.5</span>°C</div>
+                                <div id="weatherCondition" class="text-xs text-slate-400">มีเมฆบางส่วน</div>
+                            </div>
+                        </div>
+                        <div class="text-right text-xs space-y-1 text-slate-300">
+                            <div><i class="fa-solid fa-droplet text-blue-400 w-4"></i> ความชื้น: <span id="weatherHumidity">68</span>%</div>
+                            <div><i class="fa-solid fa-umbrella text-indigo-400 w-4"></i> โอกาสฝน: <span id="weatherRainProb">20</span>%</div>
+                            <div><i class="fa-solid fa-wind text-teal-400 w-4"></i> ลม: <span id="weatherWind">14.2</span> km/h</div>
+                        </div>
+                    </div>
+
+                    <!-- 7-Day Forecast Mini Cards -->
+                    <h4 class="text-xs font-semibold text-slate-400 mt-4 mb-2">พยากรณ์อากาศ 5 วันข้างหน้า</h4>
+                    <div id="forecastContainer" class="grid grid-cols-5 gap-1.5 text-center">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Active Alerts Section -->
+                <div class="mt-4 pt-3 border-t border-slate-800">
+                    <h4 class="text-xs font-semibold text-amber-400 mb-2 flex items-center">
+                        <i class="fa-solid fa-bell mr-1.5"></i> ประกาศเตือนภัยประจำพื้นที่
+                    </h4>
+                    <div id="provinceAlertList" class="space-y-1.5 text-xs">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Right Column: Interactive Maps, Feeds & Data Tabs (8 cols) -->
+        <section class="lg:col-span-8 flex flex-col gap-4">
+
+            <!-- Tab Buttons Header -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div class="flex space-x-1 sm:space-x-2 overflow-x-auto custom-scrollbar pb-1">
+                    <button class="tab-btn px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all bg-sky-600 text-white" data-tab="tab-map">
+                        <i class="fa-solid fa-map mr-1.5"></i> แผนที่ 77 จังหวัด
+                    </button>
+                    <button class="tab-btn px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all text-slate-400 hover:bg-slate-800" data-tab="tab-camera">
+                        <i class="fa-solid fa-video mr-1.5"></i> กล้องสาธารณะ (<span id="camCountBadge">0</span>)
+                    </button>
+                    <button class="tab-btn px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all text-slate-400 hover:bg-slate-800" data-tab="tab-crowd">
+                        <i class="fa-solid fa-users mr-1.5"></i> รายงานจากประชาชน (<span id="crowdCountBadge">0</span>)
+                    </button>
+                    <button class="tab-btn px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all text-slate-400 hover:bg-slate-800" data-tab="tab-history">
+                        <i class="fa-solid fa-chart-line mr-1.5"></i> สถิตีย้อนหลัง
+                    </button>
+                </div>
+
+                <button id="resetDemoBtn" class="text-[11px] text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded transition border border-slate-700 shrink-0" title="ล้างข้อมูลการทดสอบกลับเป็นค่าเริ่มต้น">
+                    <i class="fa-solid fa-rotate-left mr-1"></i> รีเซ็ตข้อมูล
+                </button>
+            </div>
+
+            <!-- TAB 1: Thailand Interactive Map -->
+            <div id="tab-map" class="tab-content glass-panel p-3 rounded-xl flex-1 flex flex-col min-h-[480px]">
+                <div class="flex items-center justify-between mb-2 px-1">
+                    <span class="text-xs text-slate-400">คลิกที่ปักหมุดบนแผนที่เพื่อสลับดูข้อมูลจังหวัดนั้นๆ</span>
+                    <div class="flex items-center space-x-3 text-[11px]">
+                        <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1"></span> ปกติ</span>
+                        <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-amber-500 mr-1"></span> เฝ้าระวัง</span>
+                        <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-red-500 mr-1"></span> เตือนภัย</span>
+                        <span class="flex items-center"><span class="w-2.5 h-2.5 rounded-full bg-purple-500 mr-1"></span> วิกฤต</span>
+                    </div>
+                </div>
+                <div id="map" class="flex-1 rounded-lg"></div>
+            </div>
+
+            <!-- TAB 2: Public Cameras Feed -->
+            <div id="tab-camera" class="tab-content glass-panel p-4 rounded-xl hidden min-h-[480px]">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-100 flex items-center">
+                            <i class="fa-solid fa-video text-sky-400 mr-2"></i>
+                            กล้องจราจร & สาธารณะในพื้นที่ <span id="camProvinceTitle" class="text-sky-400 ml-1"></span>
+                        </h3>
+                        <p class="text-xs text-slate-400">กล้องที่เปิดเผยต่อสาธารณะ ตรวจสอบภาพสดเพื่อประเมินสถานการณ์</p>
+                    </div>
+                    <button id="refreshCamsBtn" class="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 flex items-center">
+                        <i class="fa-solid fa-arrows-rotate mr-1.5"></i> อัปเดตภาพสด
+                    </button>
+                </div>
+
+                <div id="cameraGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- TAB 3: Crowdsourced Live Reports -->
+            <div id="tab-crowd" class="tab-content glass-panel p-4 rounded-xl hidden min-h-[480px]">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-100 flex items-center">
+                            <i class="fa-solid fa-users text-sky-400 mr-2"></i>
+                            รายงานสถานการณ์จากประชาชนในพื้นที่ <span id="crowdProvinceTitle" class="text-sky-400 ml-1"></span>
+                        </h3>
+                        <p class="text-xs text-slate-400">ภาพถ่ายและข้อมูลอัปเดตจากผู้คนในพื้นที่จริง (ระบบลบอัตโนมัติเมื่อครบ 5 วัน)</p>
+                    </div>
+                    <button id="openReportModalBtn2" class="bg-sky-600 hover:bg-sky-500 text-white text-xs px-3 py-1.5 rounded-lg flex items-center shadow-md">
+                        <i class="fa-solid fa-plus mr-1.5"></i> ส่งรายงานใหม่
+                    </button>
+                </div>
+
+                <div id="crowdFeedGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- TAB 4: Historical Data Analytics -->
+            <div id="tab-history" class="tab-content glass-panel p-4 rounded-xl hidden min-h-[480px] flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-base font-bold text-slate-100 flex items-center">
+                            <i class="fa-solid fa-chart-area text-sky-400 mr-2"></i>
+                            แนวโน้มสถิติตามเวลา (Historical Data Analytics)
+                        </h3>
+                        <div class="text-xs text-slate-400">
+                            จังหวัด: <span id="historyProvinceTitle" class="text-sky-400 font-semibold"></span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-slate-400 mb-4">
+                        กราฟเปรียบเทียบแนวโน้มปริมาณฝนสะสม (มม.) และอุณหภูมิเฉลี่ยย้อนหลังช่วง 6 เดือน เพื่อใช้วิเคราะห์งานวิจัยเชิงพื้นที่
+                    </p>
+                    <div class="w-full h-[320px] relative">
+                        <canvas id="historyChart"></canvas>
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center text-xs mt-4 pt-3 border-t border-slate-800">
+                    <div class="bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+                        <div class="text-slate-400">ปริมาณฝนสะสมเดือนนี้</div>
+                        <div id="statRainTotal" class="text-sm font-bold text-sky-400 mt-0.5">142.5 มม.</div>
+                    </div>
+                    <div class="bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+                        <div class="text-slate-400">จำนวนวันที่มี Alert</div>
+                        <div id="statAlertDays" class="text-sm font-bold text-amber-400 mt-0.5">4 วัน</div>
+                    </div>
+                    <div class="bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+                        <div class="text-slate-400">กล้องพร้อมใช้งาน</div>
+                        <div id="statCamAvailability" class="text-sm font-bold text-emerald-400 mt-0.5">94.2%</div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Modal: Add Crowdsource Live Report -->
+    <div id="reportModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm hidden">
+        <div class="glass-panel w-full max-w-lg rounded-2xl border border-slate-700 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="text-base font-bold text-slate-100 flex items-center">
+                    <i class="fa-solid fa-camera-retro text-sky-400 mr-2"></i>
+                    เพิ่มรายงานสถานการณ์จริงในพื้นที่
+                </h3>
+                <button id="closeReportModalBtn" class="text-slate-400 hover:text-slate-200 text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form id="reportForm" class="p-6 space-y-4">
+                <!-- Select Province -->
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1">เลือกจังหวัดที่ต้องการรายงาน</label>
+                    <select id="reportProvinceSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-sm text-slate-200 focus:ring-2 focus:ring-sky-500">
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+
+                <!-- Select Severity Level Color -->
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1.5">เลือกระดับสีสถานการณ์ปัจจุบัน</label>
+                    <div class="grid grid-cols-4 gap-2">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="reportColor" value="green" class="peer sr-only" checked>
+                            <div class="p-2 text-center rounded-lg border border-slate-700 bg-slate-800/60 peer-checked:border-emerald-500 peer-checked:bg-emerald-950/40 peer-checked:text-emerald-400 transition text-xs">
+                                <span class="w-3 h-3 rounded-full bg-emerald-500 inline-block mb-1"></span>
+                                <div class="font-medium">เขียว</div>
+                                <div class="text-[10px] opacity-70">ปกติ</div>
+                            </div>
+                        </label>
+
+                        <label class="cursor-pointer">
+                            <input type="radio" name="reportColor" value="yellow" class="peer sr-only">
+                            <div class="p-2 text-center rounded-lg border border-slate-700 bg-slate-800/60 peer-checked:border-amber-500 peer-checked:bg-amber-950/40 peer-checked:text-amber-400 transition text-xs">
+                                <span class="w-3 h-3 rounded-full bg-amber-500 inline-block mb-1"></span>
+                                <div class="font-medium">เหลือง</div>
+                                <div class="text-[10px] opacity-70">เฝ้าระวัง</div>
+                            </div>
+                        </label>
+
+                        <label class="cursor-pointer">
+                            <input type="radio" name="reportColor" value="red" class="peer sr-only">
+                            <div class="p-2 text-center rounded-lg border border-slate-700 bg-slate-800/60 peer-checked:border-red-500 peer-checked:bg-red-950/40 peer-checked:text-red-400 transition text-xs">
+                                <span class="w-3 h-3 rounded-full bg-red-500 inline-block mb-1"></span>
+                                <div class="font-medium">แดง</div>
+                                <div class="text-[10px] opacity-70">เตือนภัย</div>
+                            </div>
+                        </label>
+
+                        <label class="cursor-pointer">
+                            <input type="radio" name="reportColor" value="purple" class="peer sr-only">
+                            <div class="p-2 text-center rounded-lg border border-slate-700 bg-slate-800/60 peer-checked:border-purple-500 peer-checked:bg-purple-950/40 peer-checked:text-purple-400 transition text-xs">
+                                <span class="w-3 h-3 rounded-full bg-purple-500 inline-block mb-1"></span>
+                                <div class="font-medium">ม่วง</div>
+                                <div class="text-[10px] opacity-70">วิกฤต</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Upload Image -->
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1">อัปโหลดภาพถ่ายสภาพอากาศหน้างาน</label>
+                    <div class="relative border-2 border-dashed border-slate-700 hover:border-sky-500 rounded-xl p-4 text-center cursor-pointer transition bg-slate-800/40">
+                        <input type="file" id="reportImageInput" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer">
+                        <div id="imageUploadPlaceholder">
+                            <i class="fa-solid fa-cloud-arrow-up text-2xl text-slate-400 mb-1"></i>
+                            <div class="text-xs text-slate-300 font-medium">กดคลิกเพื่อเลือกไฟล์รูปภาพ</div>
+                            <div class="text-[10px] text-slate-500 mt-0.5">รองรับไฟล์ JPG, PNG (รูปจะแสดงผลในระบบเป็นเวลา 5 วัน)</div>
+                        </div>
+                        <img id="imagePreview" class="hidden max-h-36 mx-auto rounded-lg object-cover shadow" />
+                    </div>
+                </div>
+
+                <!-- Location & Caption -->
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1">รายละเอียดสถานที่ / คำอธิบายเพิ่มเติม</label>
+                    <input type="text" id="reportLocationDetail" placeholder="เช่น อ.เมือง บริเวณแยกอนุสาวรีย์ย่าโม..." class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 mb-2 focus:ring-2 focus:ring-sky-500" required>
+                    <textarea id="reportCaption" rows="2" placeholder="อธิบายสภาพอากาศ ฝน หรือบรรยากาศจริง..." class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 focus:ring-2 focus:ring-sky-500" required></textarea>
+                </div>
+
+                <div class="pt-2 flex justify-end space-x-2">
+                    <button type="button" id="cancelReportBtn" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg">ยกเลิก</button>
+                    <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium rounded-lg shadow-lg shadow-sky-500/20">
+                        <i class="fa-solid fa-paper-plane mr-1.5"></i> ยืนยันการบันทึก
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // COMPLETE 77 THAI PROVINCES DATABASE
+        const ALL_PROVINCES = [
+            { id: "30", name: "นครราชสีมา", nameEn: "Nakhon Ratchasima", lat: 14.9799, lng: 102.0977, region: "ภาคอีสาน" },
+            { id: "10", name: "กรุงเทพมหานคร", nameEn: "Bangkok", lat: 13.7563, lng: 100.5018, region: "ภาคกลาง" },
+            { id: "50", name: "เชียงใหม่", nameEn: "Chiang Mai", lat: 18.7883, lng: 98.9853, region: "ภาคเหนือ" },
+            { id: "83", name: "ภูเก็ต", nameEn: "Phuket", lat: 7.8804, lng: 98.3923, region: "ภาคใต้" },
+            { id: "40", name: "ขอนแก่น", nameEn: "Khon Kaen", lat: 16.4419, lng: 102.8360, region: "ภาคอีสาน" },
+            { id: "20", name: "ชลบุรี", nameEn: "Chon Buri", lat: 13.3611, lng: 100.9847, region: "ภาคตะวันออก" },
+            { id: "11", name: "สมุทรปราการ", nameEn: "Samut Prakan", lat: 13.5991, lng: 100.5968, region: "ภาคกลาง" },
+            { id: "12", name: "นนทบุรี", nameEn: "Nonthaburi", lat: 13.8591, lng: 100.5217, region: "ภาคกลาง" },
+            { id: "13", name: "ปทุมธานี", nameEn: "Pathum Thani", lat: 14.0208, lng: 100.5250, region: "ภาคกลาง" },
+            { id: "14", name: "พระนครศรีอยุธยา", nameEn: "Phra Nakhon Si Ayutthaya", lat: 14.3532, lng: 100.5684, region: "ภาคกลาง" },
+            { id: "15", name: "อ่างทอง", nameEn: "Ang Thong", lat: 14.5896, lng: 100.4550, region: "ภาคกลาง" },
+            { id: "16", name: "ลพบุรี", nameEn: "Lop Buri", lat: 14.7995, lng: 100.6534, region: "ภาคกลาง" },
+            { id: "17", name: "สิงห์บุรี", nameEn: "Sing Buri", lat: 14.8878, lng: 100.3967, region: "ภาคกลาง" },
+            { id: "18", name: "ชัยนาท", nameEn: "Chai Nat", lat: 15.1852, lng: 100.1252, region: "ภาคกลาง" },
+            { id: "19", name: "สระบุรี", nameEn: "Saraburi", lat: 14.5289, lng: 100.9101, region: "ภาคกลาง" },
+            { id: "21", name: "ระยอง", nameEn: "Rayong", lat: 12.6814, lng: 101.2816, region: "ภาคตะวันออก" },
+            { id: "22", name: "จันทบุรี", nameEn: "Chanthaburi", lat: 12.6114, lng: 102.1039, region: "ภาคตะวันออก" },
+            { id: "23", name: "ตราด", nameEn: "Trat", lat: 12.2428, lng: 102.5175, region: "ภาคตะวันออก" },
+            { id: "24", name: "ฉะเชิงเทรา", nameEn: "Chachoengsao", lat: 13.6904, lng: 101.0780, region: "ภาคตะวันออก" },
+            { id: "25", name: "ปราจีนบุรี", nameEn: "Prachin Buri", lat: 14.0509, lng: 101.3717, region: "ภาคตะวันออก" },
+            { id: "26", name: "นครนายก", nameEn: "Nakhon Nayok", lat: 14.2069, lng: 101.2131, region: "ภาคกลาง" },
+            { id: "27", name: "สระแก้ว", nameEn: "Sa Kaeo", lat: 13.8240, lng: 102.0718, region: "ภาคตะวันออก" },
+            { id: "31", name: "บุรีรัมย์", nameEn: "Buri Ram", lat: 14.9930, lng: 103.1029, region: "ภาคอีสาน" },
+            { id: "32", name: "สุรินทร์", nameEn: "Surin", lat: 14.8818, lng: 103.4936, region: "ภาคอีสาน" },
+            { id: "33", name: "ศรีสะเกษ", nameEn: "Si Sa Ket", lat: 15.1186, lng: 104.3220, region: "ภาคอีสาน" },
+            { id: "34", name: "อุบลราชธานี", nameEn: "Ubon Ratchathani", lat: 15.2287, lng: 104.8594, region: "ภาคอีสาน" },
+            { id: "35", name: "ยโสธร", nameEn: "Yasothon", lat: 15.7924, lng: 104.1453, region: "ภาคอีสาน" },
+            { id: "36", name: "ชัยภูมิ", nameEn: "Chaiyaphum", lat: 15.8105, lng: 102.0288, region: "ภาคอีสาน" },
+            { id: "37", name: "อำนาจเจริญ", nameEn: "Amnat Charoen", lat: 15.8657, lng: 104.6258, region: "ภาคอีสาน" },
+            { id: "38", name: "บึงกาฬ", nameEn: "Bueng Kan", lat: 18.3614, lng: 103.6528, region: "ภาคอีสาน" },
+            { id: "39", name: "หนองบัวลำภู", nameEn: "Nong Bua Lam Phu", lat: 17.2040, lng: 102.4410, region: "ภาคอีสาน" },
+            { id: "41", name: "อุดรธานี", nameEn: "Udon Thani", lat: 17.4138, lng: 102.7872, region: "ภาคอีสาน" },
+            { id: "42", name: "เลย", nameEn: "Loei", lat: 17.4860, lng: 101.7223, region: "ภาคอีสาน" },
+            { id: "43", name: "หนองคาย", nameEn: "Nong Khai", lat: 17.8783, lng: 102.7420, region: "ภาคอีสาน" },
+            { id: "44", name: "มหาสารคาม", nameEn: "Maha Sarakham", lat: 16.1852, lng: 103.3007, region: "ภาคอีสาน" },
+            { id: "45", name: "ร้อยเอ็ด", nameEn: "Roi Et", lat: 16.0538, lng: 103.6520, region: "ภาคอีสาน" },
+            { id: "46", name: "กาฬสินธุ์", nameEn: "Kalasin", lat: 16.4322, lng: 103.5061, region: "ภาคอีสาน" },
+            { id: "47", name: "สกลนคร", nameEn: "Sakon Nakhon", lat: 17.1664, lng: 104.1486, region: "ภาคอีสาน" },
+            { id: "48", name: "นครพนม", nameEn: "Nakhon Phanom", lat: 17.3992, lng: 104.7692, region: "ภาคอีสาน" },
+            { id: "49", name: "มุกดาหาร", nameEn: "Mukdahan", lat: 16.5453, lng: 104.7235, region: "ภาคอีสาน" },
+            { id: "51", name: "ลำพูน", nameEn: "Lamphun", lat: 18.5745, lng: 99.0087, region: "ภาคเหนือ" },
+            { id: "52", name: "ลำปาง", nameEn: "Lampang", lat: 18.2888, lng: 99.4923, region: "ภาคเหนือ" },
+            { id: "53", name: "อุตรดิตถ์", nameEn: "Uttaradit", lat: 17.6201, lng: 100.0993, region: "ภาคเหนือ" },
+            { id: "54", name: "แพร่", nameEn: "Phrae", lat: 18.1446, lng: 100.1403, region: "ภาคเหนือ" },
+            { id: "55", name: "น่าน", nameEn: "Nan", lat: 18.7838, lng: 100.7782, region: "ภาคเหนือ" },
+            { id: "56", name: "พะเยา", nameEn: "Phayao", lat: 19.1658, lng: 99.9022, region: "ภาคเหนือ" },
+            { id: "57", name: "เชียงราย", nameEn: "Chiang Rai", lat: 19.9076, lng: 99.8325, region: "ภาคเหนือ" },
+            { id: "58", name: "แม่ฮ่องสอน", nameEn: "Mae Hong Son", lat: 19.3020, lng: 97.9654, region: "ภาคเหนือ" },
+            { id: "60", name: "นครสวรรค์", nameEn: "Nakhon Sawan", lat: 15.7028, lng: 100.1372, region: "ภาคกลาง" },
+            { id: "61", name: "อุทัยธานี", nameEn: "Uthai Thani", lat: 15.3835, lng: 100.0246, region: "ภาคกลาง" },
+            { id: "62", name: "กำแพงเพชร", nameEn: "Kamphaeng Phet", lat: 16.4828, lng: 99.5227, region: "ภาคกลาง" },
+            { id: "63", name: "ตาก", nameEn: "Tak", lat: 16.8838, lng: 99.1258, region: "ภาคตะวันตก" },
+            { id: "64", name: "สุโขทัย", nameEn: "Sukhothai", lat: 17.0078, lng: 99.8234, region: "ภาคกลาง" },
+            { id: "65", name: "พิษณุโลก", nameEn: "Phitsanulok", lat: 16.8211, lng: 100.2659, region: "ภาคกลาง" },
+            { id: "66", name: "พิจิตร", nameEn: "Phichit", lat: 16.4418, lng: 100.3488, region: "ภาคกลาง" },
+            { id: "67", name: "เพชรบูรณ์", nameEn: "Phetchabun", lat: 16.4190, lng: 101.1560, region: "ภาคกลาง" },
+            { id: "70", name: "ราชบุรี", nameEn: "Ratchaburi", lat: 13.5373, lng: 99.8164, region: "ภาคตะวันตก" },
+            { id: "71", name: "กาญจนบุรี", nameEn: "Kanchanaburi", lat: 14.0227, lng: 99.5328, region: "ภาคตะวันตก" },
+            { id: "72", name: "สุพรรณบุรี", nameEn: "Suphan Buri", lat: 14.4745, lng: 100.1177, region: "ภาคกลาง" },
+            { id: "73", name: "นครปฐม", nameEn: "Nakhon Pathom", lat: 13.8196, lng: 100.0622, region: "ภาคกลาง" },
+            { id: "74", name: "สมุทรสาคร", nameEn: "Samut Sakhon", lat: 13.5475, lng: 100.2744, region: "ภาคกลาง" },
+            { id: "75", name: "สมุทรสงคราม", nameEn: "Samut Songkhram", lat: 13.4098, lng: 100.0023, region: "ภาคกลาง" },
+            { id: "76", name: "เพชรบุรี", nameEn: "Phetchaburi", lat: 13.1129, lng: 99.9397, region: "ภาคตะวันตก" },
+            { id: "77", name: "ประจวบคีรีขันธ์", nameEn: "Prachuap Khiri Khan", lat: 11.8124, lng: 99.7973, region: "ภาคตะวันตก" },
+            { id: "80", name: "นครศรีธรรมราช", nameEn: "Nakhon Si Thammarat", lat: 8.4304, lng: 99.9631, region: "ภาคใต้" },
+            { id: "81", name: "กระบี่", nameEn: "Krabi", lat: 8.0863, lng: 98.9063, region: "ภาคใต้" },
+            { id: "82", name: "พังงา", nameEn: "Phangnga", lat: 8.4501, lng: 98.5255, region: "ภาคใต้" },
+            { id: "84", name: "สุราษฎร์ธานี", nameEn: "Surat Thani", lat: 9.1382, lng: 99.3331, region: "ภาคใต้" },
+            { id: "85", name: "ระนอง", nameEn: "Ranong", lat: 9.9658, lng: 98.6348, region: "ภาคใต้" },
+            { id: "86", name: "ชุมพร", nameEn: "Chumphon", lat: 10.4930, lng: 99.1800, region: "ภาคใต้" },
+            { id: "90", name: "สงขลา", nameEn: "Songkhla", lat: 7.1988, lng: 100.5951, region: "ภาคใต้" },
+            { id: "91", name: "สตูล", nameEn: "Satun", lat: 6.6238, lng: 100.0674, region: "ภาคใต้" },
+            { id: "92", name: "ตรัง", nameEn: "Trang", lat: 7.5563, lng: 99.6114, region: "ภาคใต้" },
+            { id: "93", name: "พัทลุง", nameEn: "Phatthalung", lat: 7.6166, lng: 100.0740, region: "ภาคใต้" },
+            { id: "94", name: "ปัตตานี", nameEn: "Pattani", lat: 6.8667, lng: 101.2500, region: "ภาคใต้" },
+            { id: "95", name: "ยะลา", nameEn: "Yala", lat: 6.5411, lng: 101.2813, region: "ภาคใต้" },
+            { id: "96", name: "นราธิวาส", nameEn: "Narathiwat", lat: 6.4255, lng: 101.8253, region: "ภาคใต้" }
+        ];
+
+        let currentProvince = ALL_PROVINCES[0]; // Nakhon Ratchasima default
+        let leafletMap = null;
+        let mapMarkers = {};
+        let historyChartInstance = null;
+        const LOCAL_STORAGE_KEY = "TSI_CROWDSOURCE_REPORTS_V1";
+
+        // Generate dynamic mock situation score for province based on deterministic math
+        function getProvinceData(provId) {
+            const p = ALL_PROVINCES.find(item => item.id === provId) || ALL_PROVINCES[0];
+            const baseSeed = (parseInt(p.id) * 17) % 100;
+            
+            // Calculate situation index (0 - 100)
+            let score = (baseSeed * 0.7 + 15) % 95;
+            if (p.id === "30") score = 38; // Korat specific
+            if (p.id === "10") score = 68; // Bangkok
+            if (p.id === "50") score = 45; // Chiang Mai
+            if (p.id === "83") score = 78; // Phuket
+            score = Math.round(score);
+
+            let statusColor = "green";
+            let statusText = "🟢 Normal (ปกติ)";
+            let levelClass = "text-emerald-400";
+            let bgClass = "bg-emerald-500";
+
+            if (score >= 40 && score < 65) {
+                statusColor = "yellow";
+                statusText = "🟡 Watch (เฝ้าระวัง)";
+                levelClass = "text-amber-400";
+                bgClass = "bg-amber-500";
+            } else if (score >= 65 && score < 85) {
+                statusColor = "red";
+                statusText = "🔴 High Attention (เตือนภัย)";
+                levelClass = "text-red-400";
+                bgClass = "bg-red-500";
+            } else if (score >= 85) {
+                statusColor = "purple";
+                statusText = "🟣 Critical (วิกฤต)";
+                levelClass = "text-purple-400";
+                bgClass = "bg-purple-500";
+            }
+
+            return {
+                ...p,
+                score: score,
+                statusColor: statusColor,
+                statusText: statusText,
+                levelClass: levelClass,
+                bgClass: bgClass,
+                temp: (26 + (baseSeed % 8)).toFixed(1),
+                humidity: 55 + (baseSeed % 35),
+                rainProb: Math.min(90, (baseSeed * 3) % 90),
+                wind: (8 + (baseSeed % 15)).toFixed(1),
+                condition: score > 65 ? "ฝนตกหนักพายุลมแรง" : score > 40 ? "มีเมฆมาก ฝนตกเล็กน้อย" : "อากาศแจ่มใส มีเมฆบางส่วน"
+            };
+        }
+
+        // Get Crowdsource reports with 5-day Auto Expiration
+        function getStoredReports() {
+            try {
+                const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+                let reports = stored ? JSON.parse(stored) : getDefaultInitialReports();
+                
+                // 5-Day Expiration Filter Logic
+                const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+                const now = Date.now();
+                
+                const validReports = reports.filter(item => {
+                    const age = now - new Date(item.timestamp).getTime();
+                    return age <= FIVE_DAYS_MS;
+                });
+
+                if (validReports.length !== reports.length) {
+                    saveStoredReports(validReports); // Clean up expired
+                }
+                return validReports;
+            } catch (e) {
+                return getDefaultInitialReports();
+            }
+        }
+
+        function saveStoredReports(reports) {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(reports));
+        }
+
+        // Pre-seeded initial realistic crowd reports for testing
+        function getDefaultInitialReports() {
+            const now = Date.now();
+            return [
+                {
+                    id: "rep_01",
+                    provinceId: "30",
+                    locationDetail: "อำเภอเมืองนครราชสีมา บริเวณลานย่าโม",
+                    statusColor: "green",
+                    caption: "ท้องฟ้าแจ่มใส ลมพัดเย็นสบาย การจราจรโดยรอบคล่องตัวดีครับ",
+                    image: "https://placehold.co/600x400/0f172a/38bdf8?text=Korat+Live+Camera",
+                    timestamp: new Date(now - 3600000 * 4).toISOString() // 4 hours ago
+                },
+                {
+                    id: "rep_02",
+                    provinceId: "30",
+                    locationDetail: "ถนนมิตรภาพ ช่วงทางเลี่ยงเมืองโคราช",
+                    statusColor: "yellow",
+                    caption: "เริ่มมีเมฆดำก่อตัวและมีฝนปรอยๆ รถเริ่มชะลอตัว โปรดระมัดระวัง",
+                    image: "https://placehold.co/600x400/1e293b/eab308?text=Mitraphap+Road+Rain",
+                    timestamp: new Date(now - 3600000 * 18).toISOString() // 18 hours ago
+                },
+                {
+                    id: "rep_03",
+                    provinceId: "10",
+                    locationDetail: "แยกอโศก-สุขุมวิท กรุงเทพฯ",
+                    statusColor: "red",
+                    caption: "ฝนตกหนักมาก มีน้ำท่วมขังรอการระบายระดับฟุตบาท การจราจรติดขัดหนัก",
+                    image: "https://placehold.co/600x400/1e293b/ef4444?text=BKK+Asoke+Flood",
+                    timestamp: new Date(now - 3600000 * 28).toISOString() // 1.1 days ago
+                },
+                {
+                    id: "rep_04",
+                    provinceId: "83",
+                    locationDetail: "หาดป่าตอง ภูเก็ต",
+                    statusColor: "purple",
+                    caption: "คลื่นลมทะเลสูงมาก มีป้ายเตือนห้ามลงเล่นน้ำเนื่องจากมรสุมเข้า",
+                    image: "https://placehold.co/600x400/1e293b/a855f7?text=Phuket+High+Waves",
+                    timestamp: new Date(now - 3600000 * 50).toISOString() // 2 days ago
+                }
+            ];
+        }
+
+        // Initialize Map
+        function initMap() {
+            if (leafletMap) return;
+
+            leafletMap = L.map('map', {
+                zoomControl: true,
+                attributionControl: false
+            }).setView([13.2, 101.2], 6);
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 18,
+                subdomains: 'abcd',
+            }).addTo(leafletMap);
+
+            // Add markers for all 77 provinces
+            ALL_PROVINCES.forEach(prov => {
+                const pData = getProvinceData(prov.id);
+                let colorHex = "#22c55e"; // green
+                if (pData.statusColor === "yellow") colorHex = "#eab308";
+                if (pData.statusColor === "red") colorHex = "#ef4444";
+                if (pData.statusColor === "purple") colorHex = "#a855f7";
+
+                const markerHtml = `<div style="background-color: ${colorHex}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #ffffff; shadow: 0 0 10px ${colorHex};"></div>`;
+                const customIcon = L.divIcon({
+                    html: markerHtml,
+                    className: 'custom-map-pin',
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7]
+                });
+
+                const marker = L.marker([prov.lat, prov.lng], { icon: customIcon }).addTo(leafletMap);
+                
+                marker.bindPopup(`
+                    <div class="p-1">
+                        <div class="font-bold text-sm text-slate-100">${prov.name}</div>
+                        <div class="text-xs text-slate-300 mt-1">Situation Score: <span class="font-bold" style="color: ${colorHex}">${pData.score}/100</span></div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">${pData.statusText}</div>
+                        <button onclick="selectProvinceById('${prov.id}')" class="mt-2 w-full bg-sky-600 hover:bg-sky-500 text-white text-[11px] py-1 rounded font-medium">ดูข้อมูลจังหวัดนี้</button>
+                    </div>
+                `);
+
+                mapMarkers[prov.id] = marker;
+            });
+        }
+
+        // Render Active Selected Province Dashboard
+        function updateDashboardUI() {
+            const p = getProvinceData(currentProvince.id);
+
+            // Update Header & Left Column Info
+            document.getElementById('provinceTitle').innerText = p.name;
+            document.getElementById('provinceRegionBadge').innerText = p.region;
+            document.getElementById('situationScore').innerText = p.score;
+            document.getElementById('situationScore').className = `text-2xl font-extrabold ${p.levelClass}`;
+            document.getElementById('situationLevelText').innerText = p.statusText;
+            document.getElementById('situationLevelText').className = p.levelClass;
+            document.getElementById('scoreBar').style.width = `${p.score}%`;
+            document.getElementById('scoreBar').className = `${p.bgClass} h-full transition-all duration-500`;
+
+            const nowStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+            document.getElementById('lastUpdatedTime').innerText = nowStr + " น.";
+
+            // Weather details
+            document.getElementById('weatherTemp').innerText = p.temp;
+            document.getElementById('weatherCondition').innerText = p.condition;
+            document.getElementById('weatherHumidity').innerText = p.humidity;
+            document.getElementById('weatherRainProb').innerText = p.rainProb;
+            document.getElementById('weatherWind').innerText = p.wind;
+
+            // Weather Icon
+            const iconEl = document.getElementById('weatherIcon');
+            if (p.score > 65) iconEl.innerHTML = '<i class="fa-solid fa-cloud-showers-heavy text-blue-400"></i>';
+            else if (p.score > 40) iconEl.innerHTML = '<i class="fa-solid fa-cloud-rain text-sky-400"></i>';
+            else iconEl.innerHTML = '<i class="fa-solid fa-sun text-amber-400"></i>';
+
+            // 5-Day Forecast rendering
+            const forecastContainer = document.getElementById('forecastContainer');
+            const daysName = ['พฤ', 'ศ', 'ส', 'อา', 'จ'];
+            forecastContainer.innerHTML = '';
+            for (let i = 0; i < 5; i++) {
+                const maxT = Math.round(parseFloat(p.temp) + (i % 2 === 0 ? 1.5 : -1));
+                const rP = Math.min(95, Math.max(10, p.rainProb + (i * 8) % 40));
+                forecastContainer.innerHTML += `
+                    <div class="bg-slate-900/80 border border-slate-800 p-1.5 rounded-lg">
+                        <div class="text-[10px] text-slate-400">${daysName[i]}</div>
+                        <div class="text-xs my-1 text-sky-400"><i class="fa-solid ${rP > 50 ? 'fa-cloud-rain' : 'fa-sun'}"></i></div>
+                        <div class="text-xs font-semibold text-slate-200">${maxT}°</div>
+                        <div class="text-[9px] text-blue-400">${rP}%</div>
+                    </div>
+                `;
+            }
+
+            // Alerts List
+            const alertList = document.getElementById('provinceAlertList');
+            alertList.innerHTML = '';
+            if (p.score >= 65) {
+                alertList.innerHTML += `<div class="bg-red-950/40 border border-red-800/60 p-2 rounded text-red-300">⚠️ เตือนภัยฝนตกหนักถึงหนักมาก ระวังน้ำท่วมขังและฉับพลัน</div>`;
+            }
+            if (p.humidity > 75) {
+                alertList.innerHTML += `<div class="bg-amber-950/40 border border-amber-800/60 p-2 rounded text-amber-300">🌧️ ความชื้นสัมพัทธ์สูง โอกาสเกิดฝนตกชุก 80%</div>`;
+            }
+            alertList.innerHTML += `<div class="bg-slate-900 border border-slate-800 p-2 rounded text-slate-400">🍃 ปริมาณฝุ่น PM2.5 อยู่ในเกณฑ์ปานกลาง-ดี (Air4Thai)</div>`;
+
+            // Update Tab Titles
+            document.getElementById('camProvinceTitle').innerText = p.name;
+            document.getElementById('crowdProvinceTitle').innerText = p.name;
+            document.getElementById('historyProvinceTitle').innerText = p.name;
+
+            // Render Cameras & Crowd Reports for selected province
+            renderPublicCameras(p);
+            renderCrowdReports(p.id);
+            renderHistoricalChart(p);
+
+            // Fly Map to selected province
+            if (leafletMap) {
+                leafletMap.flyTo([p.lat, p.lng], 9, { duration: 1.2 });
+                if (mapMarkers[p.id]) mapMarkers[p.id].openPopup();
+            }
+        }
+
+        // Render Camera Tab
+        function renderPublicCameras(p) {
+            const container = document.getElementById('cameraGrid');
+            container.innerHTML = '';
+
+            // Generate 2 to 4 mock public cameras per province
+            const camCount = p.id === "30" ? 4 : (parseInt(p.id) % 3) + 2;
+            document.getElementById('camCountBadge').innerText = camCount;
+
+            const camLocations = [
+                `สี่แยกศูนย์การค้า/จราจรในเมือง (${p.name})`,
+                `ถนนทางหลวงสายหลัก กม.12 (${p.name})`,
+                `ทางเลี่ยงเมือง/จุดเชื่อมต่อสายหลัก`,
+                `สะพานข้ามแม่น้ำ/จุดเฝ้าระวังน้ำ`
+            ];
+
+            for (let i = 0; i < camCount; i++) {
+                const isOnline = i !== 3; // Mock last one offline
+                const imgSeed = (parseInt(p.id) * 10) + i;
+                const streamUrl = `https://placehold.co/600x360/0f172a/${isOnline ? '38bdf8' : '475569'}?text=LIVE+CCTV+${encodeURIComponent(p.name)}+%230${i+1}`;
+
+                container.innerHTML += `
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
+                        <div class="relative bg-black aspect-video flex items-center justify-center overflow-hidden">
+                            <img src="${streamUrl}" alt="CCTV Feed" class="w-full h-full object-cover">
+                            <div class="absolute top-2 left-2 bg-slate-950/80 backdrop-blur border border-slate-700 text-[10px] px-2 py-0.5 rounded text-slate-200 flex items-center">
+                                <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'} mr-1.5"></span>
+                                ${isOnline ? 'LIVE FEED' : 'OFFLINE'}
+                            </div>
+                            <div class="absolute bottom-2 right-2 bg-slate-950/80 text-[10px] px-2 py-0.5 rounded text-slate-400">
+                                CAM_ID: TH-${p.id}-0${i+1}
+                            </div>
+                        </div>
+                        <div class="p-3 flex items-center justify-between">
+                            <div>
+                                <h4 class="text-xs font-semibold text-slate-200">${camLocations[i]}</h4>
+                                <div class="text-[10px] text-slate-400 mt-0.5">กรมทางหลวง / เทศบาลสาธารณะ</div>
+                            </div>
+                            <span class="text-[10px] text-sky-400 bg-sky-950 px-2 py-1 rounded border border-sky-800/50">Auto-Refresh</span>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // Render Crowd Reports Tab
+        function renderCrowdReports(provId) {
+            const container = document.getElementById('crowdFeedGrid');
+            container.innerHTML = '';
+
+            const allReports = getStoredReports();
+            const provinceReports = allReports.filter(r => r.provinceId === provId);
+            
+            document.getElementById('crowdCountBadge').innerText = provinceReports.length;
+
+            if (provinceReports.length === 0) {
+                container.innerHTML = `
+                    <div class="sm:col-span-2 py-12 text-center text-slate-500">
+                        <i class="fa-solid fa-camera-retro text-3xl mb-2 text-slate-600"></i>
+                        <p class="text-xs">ยังไม่มีรายงานจากประชาชนในจังหวัด ${currentProvince.name}</p>
+                        <button onclick="document.getElementById('openReportModalBtn').click()" class="mt-3 text-xs bg-sky-600/30 hover:bg-sky-600/50 text-sky-300 border border-sky-800 px-3 py-1.5 rounded-lg transition">
+                            + เป็นคนแรกที่รายงาน
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+
+            const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+            const now = Date.now();
+
+            provinceReports.forEach(item => {
+                const ageMs = now - new Date(item.timestamp).getTime();
+                const remainingDays = Math.max(0, Math.ceil((FIVE_DAYS_MS - ageMs) / (1000 * 60 * 60 * 24)));
+
+                let colorBadge = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+                let colorName = "ปกติ (เขียว)";
+                if (item.statusColor === "yellow") { colorBadge = "bg-amber-500/20 text-amber-400 border-amber-500/30"; colorName = "เฝ้าระวัง (เหลือง)"; }
+                if (item.statusColor === "red") { colorBadge = "bg-red-500/20 text-red-400 border-red-500/30"; colorName = "เตือนภัย (แดง)"; }
+                if (item.statusColor === "purple") { colorBadge = "bg-purple-500/20 text-purple-400 border-purple-500/30"; colorName = "วิกฤต (ม่วง)"; }
+
+                const timeAgoStr = new Date(item.timestamp).toLocaleString('th-TH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+                container.innerHTML += `
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
+                        <div class="relative bg-slate-950 aspect-video overflow-hidden">
+                            <img src="${item.image}" alt="User Report" class="w-full h-full object-cover">
+                            <div class="absolute top-2 left-2 border text-[10px] font-semibold px-2 py-0.5 rounded backdrop-blur bg-slate-950/80 ${colorBadge}">
+                                ${colorName}
+                            </div>
+                            <div class="absolute bottom-2 right-2 bg-slate-950/80 text-[10px] px-2 py-0.5 rounded text-amber-400 border border-amber-800/40">
+                                <i class="fa-solid fa-hourglass-half mr-1"></i>เหลืออีก ${remainingDays} วัน
+                            </div>
+                        </div>
+                        <div class="p-3.5 flex-1 flex flex-col justify-between space-y-2">
+                            <div>
+                                <div class="text-xs font-bold text-slate-200 flex items-center">
+                                    <i class="fa-solid fa-location-dot text-rose-500 mr-1.5"></i> ${item.locationDetail}
+                                </div>
+                                <p class="text-xs text-slate-300 mt-1 leading-relaxed bg-slate-950/50 p-2 rounded border border-slate-800/50">
+                                    "${item.caption}"
+                                </p>
+                            </div>
+                            <div class="text-[10px] text-slate-400 flex items-center justify-between border-t border-slate-800/80 pt-2">
+                                <span><i class="fa-solid fa-user-check text-sky-400 mr-1"></i> พลเมืองรายงาน</span>
+                                <span><i class="fa-solid fa-clock mr-1"></i> ${timeAgoStr} น.</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        // Render Chart.js Historical Analytics
+        function renderHistoricalChart(p) {
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            
+            const months = ['พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.'];
+            const seed = parseInt(p.id);
+            const rainData = [80 + (seed%30), 120 + (seed%40), 160 + (seed%50), 210 + (seed%60), 180 + (seed%40), 95 + (seed%20)];
+            const tempData = [34 - (seed%3), 33 - (seed%2), 32, 31, 31, 30 + (seed%3)];
+
+            if (historyChartInstance) {
+                historyChartInstance.destroy();
+            }
+
+            historyChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: months,
+                    datasets: [
+                        {
+                            label: 'ปริมาณฝนสะสม (มม.)',
+                            data: rainData,
+                            backgroundColor: 'rgba(56, 189, 248, 0.4)',
+                            borderColor: '#38bdf8',
+                            borderWidth: 1.5,
+                            yAxisID: 'yRain'
+                        },
+                        {
+                            label: 'อุณหภูมิเฉลี่ย (°C)',
+                            data: tempData,
+                            type: 'line',
+                            borderColor: '#f59e0b',
+                            backgroundColor: '#f59e0b',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            yAxisID: 'yTemp'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#94a3b8', font: { family: 'Prompt', size: 11 } } }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(51, 65, 85, 0.3)' } },
+                        yRain: {
+                            type: 'linear',
+                            position: 'left',
+                            ticks: { color: '#38bdf8' },
+                            grid: { color: 'rgba(51, 65, 85, 0.3)' },
+                            title: { display: true, text: 'ปริมาณฝน (มม.)', color: '#38bdf8', font: { size: 10 } }
+                        },
+                        yTemp: {
+                            type: 'linear',
+                            position: 'right',
+                            min: 20,
+                            max: 40,
+                            ticks: { color: '#f59e0b' },
+                            grid: { drawOnChartArea: false },
+                            title: { display: true, text: 'อุณหภูมิ (°C)', color: '#f59e0b', font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+
+            document.getElementById('statRainTotal').innerText = `${rainData[5]} มม.`;
+            document.getElementById('statAlertDays').innerText = `${(seed % 5) + 1} วัน`;
+            document.getElementById('statCamAvailability').innerText = `${92 + (seed % 7)}%`;
+        }
+
+        // Global function to switch province
+        function selectProvinceById(provId) {
+            const found = ALL_PROVINCES.find(item => item.id === provId);
+            if (found) {
+                currentProvince = found;
+                document.getElementById('provinceSelect').value = provId;
+                updateDashboardUI();
+            }
+        }
+
+        // Event Listeners Initialization
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // Populate Province Dropdown with all 77 Provinces
+            const provSelect = document.getElementById('provinceSelect');
+            const reportProvSelect = document.getElementById('reportProvinceSelect');
+
+            ALL_PROVINCES.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.name} (${p.region})`;
+                provSelect.appendChild(opt);
+
+                const opt2 = opt.cloneNode(true);
+                reportProvSelect.appendChild(opt2);
+            });
+
+            provSelect.addEventListener('change', (e) => {
+                selectProvinceById(e.target.value);
+            });
+
+            // Tab Switching Handler
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const targetTab = btn.getAttribute('data-tab');
+
+                    tabBtns.forEach(b => {
+                        b.classList.remove('bg-sky-600', 'text-white');
+                        b.classList.add('text-slate-400', 'hover:bg-slate-800');
+                    });
+                    btn.classList.add('bg-sky-600', 'text-white');
+                    btn.classList.remove('text-slate-400', 'hover:bg-slate-800');
+
+                    tabContents.forEach(content => {
+                        if (content.id === targetTab) {
+                            content.classList.remove('hidden');
+                        } else {
+                            content.classList.add('hidden');
+                        }
+                    });
+
+                    if (targetTab === 'tab-map' && leafletMap) {
+                        setTimeout(() => leafletMap.invalidateSize(), 200);
+                    }
+                });
+            });
+
+            // Modal Controls
+            const modal = document.getElementById('reportModal');
+            const openBtns = [document.getElementById('openReportModalBtn'), document.getElementById('openReportModalBtn2')];
+            const closeBtn = document.getElementById('closeReportModalBtn');
+            const cancelBtn = document.getElementById('cancelReportBtn');
+
+            openBtns.forEach(btn => {
+                if (btn) {
+                    btn.addEventListener('click', () => {
+                        reportProvSelect.value = currentProvince.id;
+                        modal.classList.remove('hidden');
+                    });
+                }
+            });
+
+            const closeModal = () => modal.classList.add('hidden');
+            closeBtn.addEventListener('click', closeModal);
+            cancelBtn.addEventListener('click', closeModal);
+
+            // Image Preview Handler
+            const imageInput = document.getElementById('reportImageInput');
+            const imagePreview = document.getElementById('imagePreview');
+            const uploadPlaceholder = document.getElementById('imageUploadPlaceholder');
+            let uploadedBase64 = null;
+
+            imageInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        uploadedBase64 = event.target.result;
+                        imagePreview.src = uploadedBase64;
+                        imagePreview.classList.remove('hidden');
+                        uploadPlaceholder.classList.add('hidden');
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            // Form Submit Handler
+            const reportForm = document.getElementById('reportForm');
+            reportForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+
+                const pId = reportProvSelect.value;
+                const color = document.querySelector('input[name="reportColor"]:checked').value;
+                const loc = document.getElementById('reportLocationDetail').value;
+                const cap = document.getElementById('reportCaption').value;
+
+                const newReport = {
+                    id: 'rep_' + Date.now(),
+                    provinceId: pId,
+                    locationDetail: loc,
+                    statusColor: color,
+                    caption: cap,
+                    image: uploadedBase64 || `https://placehold.co/600x400/0f172a/38bdf8?text=User+Live+Report`,
+                    timestamp: new Date().toISOString()
+                };
+
+                const currentReports = getStoredReports();
+                currentReports.unshift(newReport);
+                saveStoredReports(currentReports);
+
+                // Reset Form
+                reportForm.reset();
+                imagePreview.classList.add('hidden');
+                uploadPlaceholder.classList.remove('hidden');
+                uploadedBase64 = null;
+                closeModal();
+
+                // Refresh UI
+                selectProvinceById(pId);
+                
+                // Switch to Crowd Tab
+                document.querySelector('[data-tab="tab-crowd"]').click();
+            });
+
+            // Reset Data Button
+            document.getElementById('resetDemoBtn').addEventListener('click', () => {
+                localStorage.removeItem(LOCAL_STORAGE_KEY);
+                updateDashboardUI();
+            });
+
+            // Live Clock
+            setInterval(() => {
+                const now = new Date();
+                document.getElementById('liveClock').innerText = now.toLocaleTimeString('th-TH');
+            }, 1000);
+
+            // Initialize Map and Load Default Dashboard
+            initMap();
+            updateDashboardUI();
+        });
+    </script>
+</body>
+                          </html>
